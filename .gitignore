@@ -1,3 +1,7 @@
 *.csv
 postcodes.json
 small.json
+dump.js
+features.json
+income.json
+postcodes_nsw.json

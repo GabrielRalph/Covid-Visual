@@ -1,88 +1,225 @@
 import {SvgPlus, SvgPath, Vector} from "https://www.svg.plus/3.5.js"
 import {Vector3} from "./Vector3.js"
 
-class Case{
-  constructor(date, recv_low = 11, recv_high = 80){
-    Object.defineProperty(this, 'start', {
-      get: () => {return date.getTime();}
-    });
-    let recovery = recv_low + Math.random() * (recv_high - recv_low);
-    Object.defineProperty(this, 'recovery', {
-      value: recovery,
-      writable: false
-    });
+async function getJSON(url){
+  let res = await fetch(url);
+  let data = await res.json();
+  return data;
+}
+class CovidMap extends SvgPlus{
+  constructor(bounds, id){
+    if(id) super(id);
+    else super("svg");
+    this.cases_query = "https://data.nsw.gov.au/data/api/3/action/datastore_search?resource_id=21304414-1ff1-4243-a5d2-f52778048b29&limit=50000";
+    this.min_recovery = 11;
+    this.max_recovery = 80;
+
+    this.map = {};
+    this.bounds = bounds.bounds;
+    this.boundries = bounds.boundries;
+
+    let invpc = -1;
+    for (let boundry of bounds.boundries) {
+      let key = boundry.props.postcode;
+      if (!key) {
+        key = invpc;
+        invpc--;
+      }
+
+      if (!(key in this.map)) {
+        this.map[key] = [];
+      }
+      this.map[key].push(boundry);
+    }
+    this.map_group = this.createChild("g", {class: "map-group"});
+    this.drawBoundries();
   }
 
+  draw(time) {
+    for (let boundry of this.boundry_paths) {
+      boundry.opacity = 0.4 + boundry.risk(time)/50;
+    }
+  }
 
+  drawBoundries(){
+    let r_earth_km = 6378.1;
+    let boundry_props = {
+      c_lon: (this.bounds.lon.min + this.bounds.lon.max)/2,
+      c_lat: (this.bounds.lat.min + this.bounds.lat.max)/2,
+      rad: new Vector3(0, 0, r_earth_km),
+    }
+    this.boundry_paths = [];
+    this.map_group.innerHTML = "";
+    for (let boundry of this.boundries) {
+      let boundry_path = new MapBoundry(boundry, boundry_props);
 
-  risk(date){
-    if (date instanceof Date){
-      date = date.getTime();
+      let hue = 360 - 140 * (boundry.props.income - 60000)/(80000);
+      if (hue > 360) hue -= 360;
+      if (Number.isNaN(hue)){
+        boundry_path.fill = "#0000"
+      }else{
+        boundry_path.fill = `hsl(${Math.round(hue)}, 100%, 50%)`
+      }
+
+      this.boundry_paths.push(boundry_path)
+      this.map_group.appendChild(boundry_path);
     }
 
-    if (date < this.start) return 0;
-    // console.log(date);
-    let dif = (date - this.start) / 24 / 60 / 60 / 1000;
-    let r = dif / this.recovery;
-    // console.log(r);
-    return r > 1 ? 0 : 1 - r;
+    let bbox = this.map_group.getBBox()
+    this.props = {
+      viewBox: `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`
+    }
   }
-}
-class Boundry extends SvgPlus{
-  constructor(id, map){
-    super(id);
-    this.cases = [];
 
-    let datelast = map.current;
-    let next = () => {
-      if (map.current instanceof Date) {
-        if (datelast != map.current) {
-          this.updateCases(map.current)
+  makeCasePeriod(date){
+    let min = this.min_recovery;
+    let max = this.max_recovery;
+    let duration =  Math.round(Math.random() * (max - min) + min);
+    duration *= 1000 * 60 * 60 * 24;
+    return {
+      start: date.getTime(),
+      end: date.getTime() + duration
+    }
+  }
+
+  async loadCases(){
+    this.start = null;
+    this.end = null;
+
+    for (let boundry of this.boundries)
+        boundry.cases = [];
+
+    let cases = await getJSON(this.cases_query);
+    let records = cases.result.records;
+    for (let record of records) {
+
+      let date = new Date(record.notification_date);
+      if (this.start == null || date < this.start)
+        this.start = date;
+      if (this.end == null || date > this.end)
+        this.end = date;
+
+      let postcode = this.map[record.postcode];
+      // console.log(postcode);
+      if (Array.isArray(postcode)) {
+        for (let boundry of postcode) {
+          boundry.cases.push(this.makeCasePeriod(date));
         }
       }
-      window.requestAnimationFrame(next)
-    }
-    next();
-  }
-
-  addCase(record){
-    if (record.postcode == this.id) {
-      let date = new Date(record.notification_date);
-      this.cases.push(new Case(date));
     }
   }
-
-  updateCases(date) {
-    let trisk = 0;
-    for (let rcase of this.cases) {
-      trisk += rcase.risk(date);
-    }
-    // console.log(date);
-    this.opacity = 0.4 + trisk/50;
+}
+class MapBoundry extends SvgPlus{
+  constructor(boundry, props){
+    super("path");
+    this.boundry = boundry;
+    this.class = "boundry"
+    this.drawBoundry(boundry, props)
   }
 
-  set opacity(opacity){
-    this.styles = {opacity: opacity}
+  risk(t){
+    let caseRiskAtTime = (period, time) => {
+      if (time < period.start) return 0;
+      if (time > period.end) return 0;
+
+      let dif = period.end - period.start;
+      let elp = time - period.start;
+      let pcnt = elp/dif;
+
+      return pcnt;
+    }
+    let total = 0;
+    for (let period of this.boundry.cases)
+      total += caseRiskAtTime(period, t);
+    return total;
+  }
+
+  set fill(value){
+    this.styles= {fill: value};
+  }
+  set opacity(value){
+    this.styles= {opacity: value};
+  }
+
+  drawBoundry(boundry, props) {
+    let d = null;
+    for (let coord of boundry.coordinates) {
+      let lon = Math.PI * (coord[0] - props.c_lon) / 180;
+      let lat = Math.PI * (coord[1] - props.c_lat) / 180;
+      let v = props.rad.rotateX(lat).rotateY(lon);
+      if (d == null) {
+        d = `M${v.x},${v.y}`
+      }else{
+        d += `L${v.x},${v.y}`
+      }
+    }
+    this.props = {d: d};
   }
 }
 
+
 class TimeLine extends SvgPlus{
-  constructor(map) {
-    super("svg");
+  constructor(start, end, id) {
+    if (id) super(id);
+    else super("svg");
+
     this.class = "timeline"
     this.props = {
       viewBox: "-40 -30 1080 60"
     }
 
-    this.map = map;
     this.history = this.createChild(SvgPath);
     this.history.class = "history";
     this.future = this.createChild(SvgPath).M(new Vector).L(new Vector(1000, 0));
     this.future.class = "future";
     this.dates = this.createChild("g", {class: "labels"});
-    // this.makeDates();
+
     this.cursor = this.createChild("ellipse", {rx: 7, ry: 7, cy: 0});
     this.clickbox = this.createChild("ellipse", {rx: 40, ry: 40, cy: 0, opacity: 0});
+
+    this.drawDates(start, end)
+  }
+
+
+
+  // ontouchstart(e){
+  //   e.x = e.touches[0].clientX;
+  //   this.onmousedown(e);
+  // }
+  // ontouchmove(e){
+  //   e.x = e.touches[0].clientX;
+  //   e.buttons = 1;
+  //   // alert(e.x);
+  //   this.onmousemove(e);
+  // }
+  //
+  // onmousedown(e){
+  //   if (e.target instanceof SVGEllipseElement){
+  //     this.move = true;
+  //     // alert(e.target)
+  //
+  //   }
+  //   this.lastdatex = this.mouseToX(e);
+  // }
+  //
+  // onmousemove(e){
+  //   if (e.buttons == 1 && this.move){
+  //     this.datex = this.mouseToX(e);
+  //     if (Math.abs(this.datex - this.lastdatex) > 5) {
+  //       this.map.paused = true;
+  //       this.map.current = this.xToDate(this.datex);
+  //       this.lastdatex = this.datex;
+  //     }
+  //
+  //     // console.log(e);
+  //     // console.log();
+  //   }else{
+  //     this.move = false;
+  //   }
+  // }
+
+  update(){
+    this.datex = this.dateToX(this.map.current);
   }
 
   mouseToX(e){
@@ -97,55 +234,9 @@ class TimeLine extends SvgPlus{
     if (x > 1000) x = 1000;
     return x
   }
-
-  ontouchstart(e){
-    e.x = e.touches[0].clientX;
-    this.onmousedown(e);
-  }
-  ontouchmove(e){
-    e.x = e.touches[0].clientX;
-    e.buttons = 1;
-    // alert(e.x);
-    this.onmousemove(e);
-  }
-
-  onmousedown(e){
-    if (e.target instanceof SVGEllipseElement){
-      this.move = true;
-      // alert(e.target)
-
-    }
-    this.lastdatex = this.mouseToX(e);
-  }
-  // onmouseup(){
-  //   console.log(this.xToDate(this.datex));
-  //   this.map.current = this.xToDate(this.datex);
-  // }
-  onmousemove(e){
-    if (e.buttons == 1 && this.move){
-      // console.log(this.mouseToX(e));
-      this.datex = this.mouseToX(e);
-
-      if (Math.abs(this.datex - this.lastdatex) > 5) {
-        this.map.paused = true;
-        this.map.current = this.xToDate(this.datex);
-        this.lastdatex = this.datex;
-      }
-
-      // console.log(e);
-      // console.log();
-    }else{
-      this.move = false;
-    }
-  }
-
-  update(){
-    this.datex = this.dateToX(this.map.current);
-  }
-
   dateToX(date){
-    let start = this.map.start;
-    let end = this.map.end;
+    let start = this.start;
+    let end = this.end;
     if (!start || !end || !(date instanceof Date)) return null;
 
     let total = end.getTime() - start.getTime();
@@ -154,14 +245,19 @@ class TimeLine extends SvgPlus{
     return (elaps/total) * 1000;
   }
   xToDate(x){
-    let start = this.map.start;
-    let end = this.map.end;
+    let start = this.start;
+    let end = this.end;
     if (!start || !end) return null;
 
     let total = end.getTime() - start.getTime();
     if (total < 0) total = 0;
     return new Date(start.getTime() + (x/1000) * total);
   }
+
+  set date(date) {
+    this.datex = this.dateToX(date);
+  }
+  get date() {return this.xToDate(this.datex)}
 
   set datex(x){
     this.history.d.clear();
@@ -174,11 +270,17 @@ class TimeLine extends SvgPlus{
   }
   get datex(){return this._datex;}
 
-  drawDates(){
+  drawDates(start, end){
     this.dates.innerHTML = "";
-    let start = new Date(this.map.start.getTime());
-    let end = new Date(this.map.end.getTime());
     if (!start || !end) return;
+
+    start = new Date(start.getTime());
+    end = new Date(end.getTime());
+
+    this.start = new Date(start.getTime());
+    this.end = end;
+
+
     let b = false;
     while (start < end) {
       let txt = (`${start}`).split(" ");
@@ -194,191 +296,6 @@ class TimeLine extends SvgPlus{
     this.props = {
       viewBox: `${bbox.x} ${bbox.y} ${bbox.width + 10} ${bbox.height}`
     }
-    // console.log(start);
   }
 }
-
-class Map extends SvgPlus{
-  constructor(id){
-    if (id) super(id);
-    else super("svg")
-    this.boundries = this.createChild("g");
-    this.keys = this.createChild("g", {class: "keys"});
-    this.timeline = new TimeLine(this);
-    this.parentNode.prepend(this.timeline);
-    this.freq = 1;
-    this.fps = 50;
-
-    let paused = false;
-    let date = this.start;
-    let next = () => {
-      if (!date) {
-        date = this.start;
-        if (!date) paused = true;
-      }
-      if (paused) return;
-      this.timeline.update()
-      // this.updateBoundries(date);
-      date = new Date(date.getTime() + this.freq * 24 * 60 * 60 * 1000);
-      if (date > this.end) {
-        // date = this.start;
-        paused = true;
-      }else{
-        setTimeout(next, this.fps);
-      }
-    }
-
-    Object.defineProperty(this, 'paused', {
-      get: () => {return paused},
-      set: (value) => {
-        if (value && !paused) paused = true;
-        console.log(value);
-        if (!value && paused) {
-          if (date > this.end) {
-            date = this.start;
-          }
-          paused = false;
-          next();
-        }
-      }
-    });
-    Object.defineProperty(this, 'current', {
-      set: (value) => {
-        if (value instanceof Date) {
-          // this.updateBoundries(date);
-          date = value;
-        }
-      },
-      get: () => {
-        if (date instanceof Date) {
-
-          return new Date(date.getTime())
-        }
-        return null;
-      }
-    });
-    next();
-  }
-
-  colorIncome(income){
-
-    let hues = {};
-    let min = 60000;
-    let max = 141262;
-    for (let inc of income) {
-      let postcode = inc.Postcode;
-      let salary = parseFloat(inc["Average salary or wages"]);
-      let hue = 360 - 140 * (salary - min)/(max - min);
-      if (hue > 360) hue -= 360;
-      hues[postcode] = `hsl(${Math.round(hue)}, 100%, 50%)`;
-    }
-    // console.log(hues);
-    for (let child of this.boundries.children) {
-      // console.log(child.class);
-      if (child.getAttribute("class") != "void") {
-        child.style.setProperty("fill", hues[child.id])
-        child.style.setProperty("opacity",0.4)
-      }
-    }
-    this.keys.innerHTML = "";
-    let v = new Vector(41, 31);
-
-    for (let inc = 140000; inc > 21000; inc -= 10000) {
-      let hue = 360 - 140 * (inc - min)/(max - min);
-      if (hue > 360) hue -= 360;
-      hue = `hsl(${Math.round(hue)}, 100%, 50%)`;
-      let text = `$${Math.round(inc/1000)}k`
-      this.keys.createChild("text", {x: v.x, y: v.y, style: {
-        "font-size": 2,
-        // "opacity": 1,
-        // "text-anchor": "end",
-        fill: hue
-      }}).innerHTML = text;
-      v = v.add(new Vector(0, -2))
-    }
-
-    this.keys.createChild("text", {x: v.x, y: v.y, style: {
-      "font-size": 1.5,
-      // "opacity": 1,
-      // "text-anchor": "end",
-      fill: "black"
-    }}).innerHTML = "mean salary";
-
-  }
-
-  drawFeatures(range) {
-    let c_lon = (range.bounds.lon.max + range.bounds.lon.min) / 2;
-    let c_lat = (range.bounds.lat.max + range.bounds.lat.min) / 2;
-    let txt = "";
-    let rad = new Vector3(0, 0, 6378.1);
-    for (let feature of range.features) {
-      let d = null
-      for (let coord of feature.coordinates) {
-        let lon = Math.PI * (coord[0] - c_lon) / 180;
-        let lat = Math.PI * (coord[1] - c_lat) / 180;
-        let v = rad.rotateX(lat).rotateY(lon);
-
-
-        if (d == null) {
-          d = `M${v.x},${v.y}`
-        }else{
-          d += `L${v.x},${v.y}`
-        }
-      }
-      let postcode = this.pc[feature.props.nsw_loca_2];
-      if (!postcode) {
-        txt += `<path class = "void" name = '${feature.props.nsw_loca_2}' d = '${d}'></path>`
-      }else{
-        txt += `<path id = '${postcode.postcode}' name = '${postcode.locality}' d = '${d}'></path>`
-      }
-      // console.log(postcode);
-    }
-    this.boundries.innerHTML = txt;
-    let bbox = this.boundries.getBBox()
-    this.props = {
-      viewBox: `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`
-    }
-  }
-
-  addCases(cases){
-    for (let rcase of cases){
-      this.addCase(rcase);
-    }
-    this.timeline.drawDates();
-
-  }
-
-  addCase(rcase){
-    if (this.running) return;
-    let date = new Date(rcase.notification_date);
-    if (this.start instanceof Date) {
-      if (date < this.start) this.start = date;
-    }else {
-      this.start = date;
-    }
-    if (this.end instanceof Date) {
-      if (date > this.end) this.end = date;
-    }else{
-      this.end = date;
-    }
-
-    let boundry = this.getElementById(rcase.postcode);
-    if (boundry) {
-      if (!SvgPlus.is(boundry, Boundry)) {
-        boundry = new Boundry(boundry, this);
-      }
-      boundry.addCase(rcase);
-    }
-  }
-
-  updateBoundries(date){
-    for (let boundry of this.boundries.children) {
-      if (SvgPlus.is(boundry, Boundry)) {
-        boundry.updateCases(date);
-      }
-    }
-  }
-}
-
-
-export {Map}
+export {CovidMap, TimeLine, getJSON}
