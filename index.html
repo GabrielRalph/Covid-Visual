@@ -76,7 +76,7 @@
       let play = () => {
         map.draw(time);
         timeline.date = new Date(time);
-        time += 2*24*60*60*1000;
+        time += 5*24*60*60*1000;
         if (time > e.getTime()){
           time = s.getTime();
           map.onclick = () => {
