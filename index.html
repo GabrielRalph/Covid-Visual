@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8">
+    <title></title>
+    <link rel = "stylesheet" href = "https://arcms.w4v.es/Assets/Supreme/stylesheet.css"/>
+  </head>
+  <body>
+    <div id = loader>
+      <h1 id = loader-text>
+        Loading
+      </h1>
+    </div>
+    <svg id = "map" viewBox = "-30 -30 60 60"></svg>
+  </body>
+
+  <!-- <script type = "module">
+
+    class Area extends SvgPath{
+
+    }
+  </script> -->
+
+  <script type="module">
+    import {SvgPlus, SvgPath, Vector} from "https://www.svg.plus/3.5.js"
+    import {Vector3} from "./Vector3.js"
+    import {Map} from "./Map.js"
+
+    let loader = new SvgPlus("loader");
+    let loaderText = new SvgPlus("loader-text");
+    let hide = false;
+    let ho = 1;
+    let onfade = () => {}
+    let next = (dt) => {
+      loaderText.styles = {
+        opacity: 0.5 + (Math.sin(dt/600) + 1)/4,
+        // "transform-origin": "50%, 50%",
+        transform: `translate(-50%, -50%) scale(${1+(Math.sin(dt/600) + 1)*0.1})`
+      }
+      if (hide) {
+        ho -= 0.03;
+      }
+      loader.styles = {opacity: ho}
+      if (ho < 0) {
+        loader.styles = {display: "none"};
+        onfade();
+      }else{
+        window.requestAnimationFrame(next);
+      }
+    }
+    next();
+
+
+    class MinMax{
+      constructor(lon_min = 1000, lat_min = 1000, lon_max = -1000, lat_max = -1000) {
+        Object.defineProperty(this, 'lon', {
+          get: () => {
+            return {
+              min: lon_min,
+              max: lon_max,
+            }
+          }
+        });
+        Object.defineProperty(this, 'lat', {
+          get: () => {
+            return {
+              min: lat_min,
+              max: lat_max,
+            }
+          }
+        });
+      }
+
+      inRange(v) {
+        if (Array.isArray(v)) {
+          v = new MinMax(v[0], v[1], v[0], v[1]);
+        }
+
+        if (v instanceof MinMax) {
+          return  v.lon.min >= this.lon.min &&
+                  v.lat.min >= this.lat.min &&
+                  v.lon.max <= this.lon.max &&
+                  v.lat.max <= this.lat.max
+        }
+      }
+
+      add(minMax) {
+        if (Array.isArray(minMax)) {
+          minMax = new MinMax(minMax[0], minMax[1], minMax[0], minMax[1]);
+        }
+
+        if (minMax instanceof MinMax) {
+          let lon_min = this.lon.min < minMax.lon.min ? this.lon.min : minMax.lon.min;
+          let lat_min = this.lat.min < minMax.lat.min ? this.lat.min : minMax.lat.min;
+
+          let lon_max = this.lon.max > minMax.lon.max ? this.lon.max : minMax.lon.max;
+          let lat_max = this.lat.max > minMax.lat.max ? this.lat.max : minMax.lat.max;
+
+          return new MinMax(lon_min, lat_min, lon_max, lat_max);
+        }else{
+          return null;
+        }
+      }
+    }
+    let sydney_range = new MinMax(150.6, -34.18, 151.4, -33.6)
+    async function getData(url){
+      let res = await fetch(url);
+      let data = await res.json();
+      return data;
+    }
+
+    function download(filename, text) {
+      var element = document.createElement('a');
+      element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+      element.setAttribute('download', filename);
+
+      element.style.display = 'none';
+      document.body.appendChild(element);
+
+      element.click();
+
+      document.body.removeChild(element);
+    }
+    async function getCSV(url) {
+      let res = await fetch(url);
+      let text  =await res.text();
+      let lines = text.split('\n');
+      let keys = lines.shift().split(",");
+      let income_json = [];
+      for (let line of lines) {
+        let values = line.split(",");
+        let d = {};
+        for (let i = 0; i < values.length;i++) {
+          d[keys[i]] = values[i];
+        }
+        income_json.push(d)
+      }
+    }
+
+
+    function getFeaturesInRange(features, range) {
+      let data = {
+        features: [],
+        bounds: null,
+      };
+      let bounds = new MinMax();
+
+      for (let feature of features) {
+        let coords = feature.geometry.coordinates[0][0];
+        // console.log(coords);
+        let bbox = new MinMax();
+        // console.log(bbox);
+        for (let coord of coords) {
+          // console.log(coord);
+          bbox = bbox.add(coord);
+          if (!range.inRange(bbox)) break;
+        }
+
+        if (range.inRange(bbox)) {
+          console.log("x");
+          bounds = bounds.add(bbox);
+          data.features.push({
+            props: feature.properties,
+            coordinates: coords,
+            bounds: {
+              lon: bbox.lon,
+              lat: bbox.lat
+            }
+          })
+        }
+      }
+      data.bounds = {
+        lon: bounds.lon,
+        lat: bounds.lat
+      }
+      return data;
+    }
+
+
+
+    function drawFeatures(range) {
+      let c_lon = (range.bounds.lon.max + range.bounds.lon.min) / 2;
+      let c_lat = (range.bounds.lat.max + range.bounds.lat.min) / 2;
+      let txt = "";
+      let rad = new Vector3(0, 0, 6378.1);
+      for (let feature of range.features) {
+        let d = null
+        for (let coord of feature.coordinates) {
+          let lon = Math.PI * (coord[0] - c_lon) / 180;
+          let lat = Math.PI * (coord[1] - c_lat) / 180;
+          let v = rad.rotateX(lat).rotateY(lon);
+
+
+          if (d == null) {
+            d = `M${v.x},${v.y}`
+          }else{
+            d += `L${v.x},${v.y}`
+          }
+        }
+        txt += `<path id = '${feature.props.loc_pid}' d = '${d}'></path>`
+      }
+      return txt;
+    }
+
+
+    async function loadMap(){
+      let income = await getData("income.json");
+      // console.log(income);
+      let postcodes = await getData("./postcodes_nsw.json");
+      let pcbyname = {};
+      // let pcbypc = {};
+      for (let postcode of postcodes) {
+        pcbyname[postcode.locality] = postcode;
+        // pcbypc[postcode.postcode] = postcode;
+      }
+
+
+
+      let cases = await getData("https://data.nsw.gov.au/data/api/3/action/datastore_search?resource_id=21304414-1ff1-4243-a5d2-f52778048b29&limit=50000");
+      let boundries = await getData("./features.json");
+      let map = new Map("map");
+      map.fps = 40;
+      map.pc = pcbyname;
+      map.drawFeatures(boundries);
+      let records = cases.result.records;
+      records.sort((a, b) => {
+        let da = new Date(a.notification_date);
+        let db = new Date(b.notification_date);
+        return da > db ? 1 : -1;
+      })
+      map.colorIncome(income);
+      map.addCases(records);
+      hide = true;
+      onfade = () => {
+        map.paused = false;
+      }
+      map.onclick = () => {
+        // map.colorIncome(income);
+        map.paused = !map.paused;
+      }
+    }
+    // alert("x")
+    loadMap();
+
+  </script>
+  <style>
+  body{
+    font-family: "Supreme LL TT"
+  }
+    svg{
+      margin: 5vw;
+    }
+    #map{
+      /* fill: #4f89ff; */
+      stroke: white;
+      stroke-width: 0.075;
+      /* opacity: 0.4; */
+    }
+
+    path.void{
+      opacity: 0;
+    }
+
+    .keys text{
+      text-anchor: end;
+      font-weight: bold;
+      stroke: none;
+    }
+
+    /* .timeline {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+
+    } */
+    .timeline path{
+      stroke-linecap: round;
+      stroke: black;
+      stroke-width: 5;
+    }
+    .future {
+      opacity: 0.5;
+    }
+    .labels text{
+      user-select: none;
+      text-anchor: middle;
+    }
+
+    #loader {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: white;
+      z-index: 100;
+    }
+    #loader-text {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      text-align: center;
+      transform: translate(-50%, -50%);
+    }
+  </style>
+</html>
