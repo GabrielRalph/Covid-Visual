@@ -286,7 +286,7 @@ class TimeLine extends SvgPlus{
       let txt = (`${start}`).split(" ");
       this.dates.createChild("text", {
         x: this.dateToX(start),
-        y: b ? 20 : -10,
+        y: b ? 25 : -13,
 
       }).innerHTML = txt[1] + " " + txt[3];
       b = !b;

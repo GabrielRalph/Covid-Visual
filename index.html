@@ -6,11 +6,11 @@
     <link rel = "stylesheet" href = "https://arcms.w4v.es/Assets/Supreme/stylesheet.css"/>
   </head>
   <body>
-    <!-- <div id = loader>
+    <div id = loader>
       <h1 id = loader-text>
         Loading
       </h1>
-    </div> -->
+    </div>
     <svg id = "timeline" ></svg>
     <svg id = "map" viewBox = "-30 -30 60 60"></svg>
   </body>
@@ -23,7 +23,31 @@
   </script> -->
 
   <script type="module">
+    import {SvgPlus} from "https://www.svg.plus/3.5.js"
     import {CovidMap, TimeLine, getJSON} from "./Map.js"
+    let loader = new SvgPlus("loader");
+    let loaderText = new SvgPlus("loader-text");
+    let hide = false;
+    let ho = 1;
+    let onfade = () => {}
+    let next = (dt) => {
+      loaderText.styles = {
+        opacity: 0.5 + (Math.sin(dt/600) + 1)/4,
+        // "transform-origin": "50%, 50%",
+        transform: `translate(-50%, -50%) scale(${1+(Math.sin(dt/600) + 1)*0.1})`
+      }
+      if (hide) {
+        ho -= 0.03;
+      }
+      loader.styles = {opacity: ho}
+      if (ho < 0) {
+        loader.styles = {display: "none"};
+        onfade();
+      }else{
+        window.requestAnimationFrame(next);
+      }
+    }
+    next();
     function download(filename, text) {
       var element = document.createElement('a');
       element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
@@ -52,7 +76,7 @@
       let play = () => {
         map.draw(time);
         timeline.date = new Date(time);
-        time += 3*24*60*60*1000;
+        time += 2*24*60*60*1000;
         if (time > e.getTime()){
           time = s.getTime();
           map.onclick = () => {
@@ -63,7 +87,9 @@
           window.requestAnimationFrame(play)
         }
       }
-      play();
+      map.draw(time);
+      hide = true;
+      onfade = play;
       // map.draw()
 
     }
@@ -72,13 +98,21 @@
   </script>
   <style>
   body{
-    font-family: "Supreme LL TT"
+    font-family: "Supreme LL TT";
+    margin: 0;
   }
-    svg{
-      margin: 5vw;
-    }
+  #timeline {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    margin: 2vw;
+  }
+
     #map{
       /* fill: #4f89ff; */
+      margin: 5vw;
+      margin-top: 8vw;
       stroke: white;
       stroke-width: 0.075;
       /* opacity: 0.4; */
