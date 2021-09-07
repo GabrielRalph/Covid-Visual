@@ -18,6 +18,15 @@ class Map extends SvgPlus{
     }
     return pcs;
   }
+  get localities(){
+    let locs = {};
+    for (let boundry of this.boundries) {
+      let loc = boundry.getAttribute("class");
+      loc = loc.split(" ")[1].replace("-", " ")
+      locs[loc] = true;
+    }
+    return locs;
+  }
 
   set_boundry_props(bprops, def) {
     for (let boundry of this.boundries) {

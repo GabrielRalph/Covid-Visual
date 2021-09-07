@@ -65,12 +65,14 @@ function addCasesLabel(label, cases) {
     "font-size": 1,
     "text-anchor": "middle"
   }).innerHTML = c;
-  label.createChild("text", {
-    y: 1.1,
-    x: 0,
-    "font-size": 1,
-    "text-anchor": "middle"
-  }).innerHTML = `${cases} cases`
+  if (cases > 0) {
+    label.createChild("text", {
+      y: 1.1,
+      x: 0,
+      "font-size": 1,
+      "text-anchor": "middle"
+    }).innerHTML = `${cases} cases`
+  }
 }
 function addCasesLabels(labels, cases) {
   for (let label of labels) {
@@ -84,6 +86,10 @@ function setRisk(cases, now, map) {
     for (let boundry of map.boundries) {
       boundry.style.setProperty("--risk", 0);
       boundry.style.setProperty("--cases", 0);
+    }
+    let pcs = map.localities;
+    for (let loc in map.localities) {
+      addCasesLabels(map.label_by_loc(loc), 0);
     }
   }
 
