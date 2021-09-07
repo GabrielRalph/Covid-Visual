@@ -5,3 +5,7 @@ dump.js
 features.json
 income.json
 postcodes_nsw.json
+/Center
+*.svg
+/Rev 2
+*.json
