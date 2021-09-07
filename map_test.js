@@ -123,8 +123,8 @@ let load = async () => {
   let next = () => {
     dateNow.innerHTML = datef(now);
     setRisk(cases, now, map);
-    now += 1000*60*60*24;
     if (now <= today) {
+      now += 1000*60*60*24;
       console.log(now);
       window.requestAnimationFrame(next);
     } else {
