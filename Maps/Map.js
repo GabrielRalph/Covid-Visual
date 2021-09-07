@@ -9,6 +9,15 @@ class Map extends SvgPlus{
   get boundries(){
     return this.bgroup.children;
   }
+  get postcodes(){
+    let pcs = {};
+    for (let boundry of this.boundries) {
+      let pc = boundry.getAttribute("class");
+      pc = pc.split(" ")[0];
+      pcs[pc] = true;
+    }
+    return pcs;
+  }
 
   set_boundry_props(bprops, def) {
     for (let boundry of this.boundries) {
