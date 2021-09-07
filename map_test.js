@@ -57,16 +57,20 @@ function caseByPostcode(cases, from = 0) {
 
 function addCasesLabel(label, cases) {
   if (!SvgPlus.is(label, SvgPlus)) label = new SvgPlus(label);
-
-  let text = label.children[1];
-  if (!text) {
-    text = label.createChild("text", {
-      y: 1,
-      "font-size": 1,
-      "text-anchor": "middle"
-    });
-  }
-  text.innerHTML = `${cases} cases`
+  let c = label.class.split(" ")[1].replace("-", " ");
+  label.innerHTML = "";
+  label.createChild("text", {
+    y: 0,
+    x: 0,
+    "font-size": 1,
+    "text-anchor": "middle"
+  }).innerHTML = c;
+  label.createChild("text", {
+    y: 1.1,
+    x: 0,
+    "font-size": 1,
+    "text-anchor": "middle"
+  }).innerHTML = `${cases} cases`
 }
 function addCasesLabels(labels, cases) {
   for (let label of labels) {
